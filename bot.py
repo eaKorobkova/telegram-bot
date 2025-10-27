@@ -1002,4 +1002,15 @@ def main():
         logger.error(f"Ошибка запуска бота: {e}")
 
 if __name__ == '__main__':
-    main()
+    import time
+    print("🚀 Starting Telegram Bot...")
+    while True:
+        try:
+            main()
+        except KeyboardInterrupt:
+            print("Bot stopped by user")
+            break
+        except Exception as e:
+            print(f"Error: {e}")
+            print("Restarting in 10 seconds...")
+            time.sleep(10)
