@@ -1003,6 +1003,7 @@ def main():
 
 if __name__ == '__main__':
     import time
+    import traceback
     print("🚀 Starting Telegram Bot...")
     while True:
         try:
@@ -1011,6 +1012,8 @@ if __name__ == '__main__':
             print("Bot stopped by user")
             break
         except Exception as e:
-            print(f"Error: {e}")
-            print("Restarting in 10 seconds...")
+            print(f"❌ Critical error: {e}")
+            print("🔧 Full error details:")
+            traceback.print_exc()
+            print("🔄 Restarting in 10 seconds...")
             time.sleep(10)
