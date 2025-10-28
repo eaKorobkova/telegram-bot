@@ -5,4 +5,11 @@ __pycache__/
 *.pyd
 .DS_Store
 *.db
-* — копия.py
+*.sqlite3
+*.log
+* copy.py
+* копия.py
+*-copy.py
+*-копия.py
+.venv/
+venv/
