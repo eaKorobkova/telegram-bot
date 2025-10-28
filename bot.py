@@ -41,12 +41,12 @@ PRIORITIES = {
     "🔵 Низкий": 1
 }
 
-# Конфигурация NewsAPI - ФИКСИРОВАННЫЙ URL
-NEWS_API_KEY = "7c90fc1f9c9f46c2898f4f21684b5c57"
-NEWS_API_URL = "https://newsapi.org/v2/top-headlines?country=us&category=business&apiKey=7c90fc1f9c9f46c2898f4f21684b5c57"
+# Конфигурация NewsAPI - ИСПРАВЛЕНО: токен из переменных окружения
+NEWS_API_KEY = os.getenv('NEWS_API_KEY', '7c90fc1f9c9f46c2898f4f21684b5c57')
+NEWS_API_URL = f"https://newsapi.org/v2/top-headlines?country=us&category=business&apiKey={NEWS_API_KEY}"
 
 class TaskManager:
-    def __init__(self, db_path='tasks.db'):
+    def __init__(self, db_path='/tmp/tasks.db'):  # ИСПРАВЛЕНО: путь для Railway
         self.db_path = db_path
         self.init_database()
     
@@ -989,13 +989,15 @@ def main():
         # Добавление обработчика ошибок
         application.add_error_handler(error_handler)
         
-        # Настройка планировщика для напоминаний
+        # Настройка планировщика для напоминаний - ИСПРАВЛЕННАЯ ВЕРСИЯ
         scheduler = AsyncIOScheduler()
         scheduler.add_job(send_reminders, 'interval', minutes=1, args=[application])
-        scheduler.start()
         
         print("✅ Бот запущен успешно!")
         print("📰 Функция новостей: АКТИВНА (бизнес-новости США)")
+        
+        # Запускаем планировщик и бота
+        scheduler.start()
         application.run_polling()
         
     except Exception as e:
