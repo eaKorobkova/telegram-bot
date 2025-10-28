@@ -16,7 +16,6 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, ConversationHandler, filters
 )
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -68,17 +67,7 @@ class TaskManager:
                 )
             ''')
             
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS reminders (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task_id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL,
-                    reminder_time TEXT NOT NULL,
-                    sent BOOLEAN DEFAULT FALSE,
-                    FOREIGN KEY (task_id) REFERENCES tasks (id)
-                )
-            ''')
-            
+            # УДАЛЕНА таблица reminders - больше не нужна
             conn.commit()
             conn.close()
             logger.info("База данных инициализирована успешно")
@@ -100,19 +89,7 @@ class TaskManager:
             
             task_id = cursor.lastrowid
             
-            # Создание напоминания за 1 минуту до дедлайна
-            if due_date:
-                try:
-                    due_datetime = datetime.fromisoformat(due_date)
-                    reminder_time = due_datetime - timedelta(minutes=1)
-                    
-                    if reminder_time > datetime.now():
-                        cursor.execute('''
-                            INSERT INTO reminders (task_id, user_id, reminder_time)
-                            VALUES (?, ?, ?)
-                        ''', (task_id, user_id, reminder_time.isoformat()))
-                except ValueError as e:
-                    logger.warning(f"Ошибка создания напоминания: {e}")
+            # УДАЛЕНА логика создания напоминаний
             
             conn.commit()
             conn.close()
@@ -196,9 +173,7 @@ class TaskManager:
                 DELETE FROM tasks WHERE id = ? AND user_id = ?
             ''', (task_id, user_id))
             
-            cursor.execute('''
-                DELETE FROM reminders WHERE task_id = ?
-            ''', (task_id,))
+            # УДАЛЕНА логика удаления напоминаний
             
             success = cursor.rowcount > 0
             conn.commit()
@@ -210,44 +185,6 @@ class TaskManager:
         except Exception as e:
             logger.error(f"Ошибка удаления задачи #{task_id}: {e}")
             return False
-    
-    def get_pending_reminders(self):
-        """Получение ожидающих напоминаний"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            now = datetime.now().isoformat()
-            
-            cursor.execute('''
-                SELECT r.*, t.text 
-                FROM reminders r
-                JOIN tasks t ON r.task_id = t.id
-                WHERE r.reminder_time <= ? AND r.sent = FALSE
-            ''', (now,))
-            
-            reminders = cursor.fetchall()
-            conn.close()
-            return reminders
-        except Exception as e:
-            logger.error(f"Ошибка получения напоминаний: {e}")
-            return []
-    
-    def mark_reminder_sent(self, reminder_id):
-        """Отметка напоминания как отправленного"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                UPDATE reminders SET sent = TRUE WHERE id = ?
-            ''', (reminder_id,))
-            
-            conn.commit()
-            conn.close()
-            logger.info(f"Напоминание #{reminder_id} отправлено")
-        except Exception as e:
-            logger.error(f"Ошибка отметки напоминания #{reminder_id}: {e}")
 
 # Глобальный экземпляр менеджера задач
 task_manager = TaskManager()
@@ -273,6 +210,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚙️ Управление задачами - редактировать/удалить задачи
 📰 Бизнес-новости США - свежие бизнес-новости
 ℹ️ Помощь - показать справку
+
+💡 Совет: Регулярно проверяйте список задач, чтобы ничего не забыть!
 """
         await update.message.reply_text(
             welcome_text, 
@@ -306,6 +245,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Для кастомного ввода используйте формат:
 `ГГГГ-ММ-ДД ЧЧ:ММ`
 Пример: `2024-12-31 23:59`
+
+💡 *Совет:* Регулярно проверяйте список задач!
 """
         await update.message.reply_text(help_text)
     except Exception as e:
@@ -649,6 +590,8 @@ async def add_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📅 Срок: {due_date_str}
 🎯 Приоритет: {priority_text}
 ID: #{task_id}
+
+💡 Не забывайте проверять список задач!
 """
         await query.edit_message_text(confirmation_text)
         
@@ -898,25 +841,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Ошибка отмены операции: {e}")
 
-async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
-    """Отправка напоминаний"""
-    try:
-        reminders = task_manager.get_pending_reminders()
-        
-        for reminder in reminders:
-            reminder_id, task_id, user_id, reminder_time, sent, task_text = reminder
-            
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"⏰ Напоминание: через минуту у вас запланировано '{task_text}'"
-                )
-                task_manager.mark_reminder_sent(reminder_id)
-                logger.info(f"Напоминание отправлено пользователю {user_id} для задачи '{task_text}'")
-            except Exception as e:
-                logger.error(f"Ошибка отправки напоминания пользователю {user_id}: {e}")
-    except Exception as e:
-        logger.error(f"Ошибка в функции отправки напоминаний: {e}")
+# УДАЛЕНА функция send_reminders - больше не нужна
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
@@ -989,15 +914,12 @@ def main():
         # Добавление обработчика ошибок
         application.add_error_handler(error_handler)
         
-        # Настройка планировщика для напоминаний - ИСПРАВЛЕННАЯ ВЕРСИЯ
-        scheduler = AsyncIOScheduler()
-        scheduler.add_job(send_reminders, 'interval', minutes=1, args=[application])
+        # УДАЛЕН блок с планировщиком - больше не нужен
         
         print("✅ Бот запущен успешно!")
         print("📰 Функция новостей: АКТИВНА (бизнес-новости США)")
+        print("💡 Напоминания отключены для стабильной работы")
         
-        # Запускаем планировщик и бота
-        scheduler.start()
         application.run_polling()
         
     except Exception as e:
