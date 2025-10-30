@@ -918,17 +918,8 @@ def main():
         print("📰 Функция новостей: АКТИВНА (бизнес-новости США)")
         print("💡 Напоминания отключены для стабильной работы")
         
-        # ИСПРАВЛЕННАЯ ЧАСТЬ - ЗАПУСК ЧЕРЕЗ WEBHOOK
-        PORT = int(os.environ.get('PORT', 8080))
-        WEBHOOK_URL = "https://worker-production-07a6.up.railway.app"
-        
-        # Запускаем webhook вместо polling
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path="webhook",
-            webhook_url=f"{WEBHOOK_URL}/webhook"
-        )
+        # Запускаем polling
+        application.run_polling()
         
     except Exception as e:
         logger.error(f"Ошибка запуска бота: {e}")
