@@ -448,7 +448,8 @@ async def add_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         context.user_data['current_step'] = 'text'
         
-        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")]]
+        # ИСПРАВЛЕНО: используем "back" вместо "back_to_main"
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
@@ -464,6 +465,15 @@ async def add_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_task_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение текста задачи"""
     try:
+        # Проверяем, не нажата ли кнопка назад через текст
+        if update.message.text.lower() in ['назад', 'back', 'отмена', 'cancel']:
+            await update.message.reply_text(
+                "Возврат в главное меню",
+                reply_markup=get_main_menu()
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
+        
         context.user_data['task_text'] = update.message.text
         context.user_data['current_step'] = 'due_date'
         
@@ -499,7 +509,8 @@ async def add_task_due_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_choice == "back":
             # Возврат к вводу текста
             context.user_data['current_step'] = 'text'
-            keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")]]
+            # ИСПРАВЛЕНО: используем "back" вместо "back_to_main"
+            keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(
@@ -959,13 +970,57 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
         logger.error(f"Ошибка подтверждения удаления: {e}")
         await update.callback_query.edit_message_text("❌ Произошла ошибка.")
 
+# ИСПРАВЛЕННЫЙ обработчик кнопки Назад
 async def handle_back_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка кнопки Назад в различных состояниях"""
     try:
         query = update.callback_query
         await query.answer()
         
-        if query.data == "back_to_main":
+        # Общая обработка кнопки Назад
+        current_step = context.user_data.get('current_step', '')
+        
+        if current_step == 'text':
+            await query.edit_message_text(
+                "Возврат в главное меню",
+                reply_markup=get_main_menu()
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
+            
+        elif current_step == 'due_date':
+            # Возврат к вводу текста
+            context.user_data['current_step'] = 'text'
+            keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "📝 Введите текст задачи:",
+                reply_markup=reply_markup
+            )
+            return TEXT
+            
+        elif current_step == 'priority':
+            # Возврат к выбору даты
+            context.user_data['current_step'] = 'due_date'
+            keyboard = [
+                [InlineKeyboardButton("Сегодня", callback_data="today")],
+                [InlineKeyboardButton("Завтра", callback_data="tomorrow")],
+                [InlineKeyboardButton("Через 3 дня", callback_data="3days")],
+                [InlineKeyboardButton("📅 Кастомный формат", callback_data="custom")],
+                [InlineKeyboardButton("Без срока", callback_data="no_date")],
+                get_back_button()
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "⏰ Укажите срок выполнения:",
+                reply_markup=reply_markup
+            )
+            return DUE_DATE
+        
+        else:
+            # Если неизвестное состояние, возвращаем в главное меню
             await query.edit_message_text(
                 "Возврат в главное меню",
                 reply_markup=get_main_menu()
@@ -973,49 +1028,25 @@ async def handle_back_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
             context.user_data.clear()
             return ConversationHandler.END
         
-        elif query.data == "back":
-            # Общая обработка кнопки Назад
-            current_step = context.user_data.get('current_step', '')
-            
-            if current_step == 'text':
-                await query.edit_message_text(
-                    "Возврат в главное меню",
-                    reply_markup=get_main_menu()
-                )
-                context.user_data.clear()
-                return ConversationHandler.END
-                
-            elif current_step == 'due_date':
-                # Возврат к вводу текста
-                keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await query.edit_message_text(
-                    "📝 Введите текст задачи:",
-                    reply_markup=reply_markup
-                )
-                return TEXT
-                
-            elif current_step == 'priority':
-                # Возврат к выбору даты
-                keyboard = [
-                    [InlineKeyboardButton("Сегодня", callback_data="today")],
-                    [InlineKeyboardButton("Завтра", callback_data="tomorrow")],
-                    [InlineKeyboardButton("Через 3 дня", callback_data="3days")],
-                    [InlineKeyboardButton("📅 Кастомный формат", callback_data="custom")],
-                    [InlineKeyboardButton("Без срока", callback_data="no_date")],
-                    get_back_button()
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await query.edit_message_text(
-                    "⏰ Укажите срок выполнения:",
-                    reply_markup=reply_markup
-                )
-                return DUE_DATE
-        
     except Exception as e:
         logger.error(f"Ошибка обработки кнопки Назад: {e}")
+
+# Добавляем обработчик текстовых команд
+async def handle_text_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка текстовых команд типа 'назад'"""
+    try:
+        text = update.message.text.lower()
+        
+        if text in ['назад', 'back', 'отмена', 'cancel', 'меню']:
+            await update.message.reply_text(
+                "Возврат в главное меню",
+                reply_markup=get_main_menu()
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
+            
+    except Exception as e:
+        logger.error(f"Ошибка обработки текстовой команды: {e}")
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отмена текущей операции"""
@@ -1046,7 +1077,7 @@ def main():
         
         application = Application.builder().token(BOT_TOKEN).build()
         
-        # Обработчик для добавления задач
+        # ИСПРАВЛЕННЫЙ ConversationHandler
         add_conv_handler = ConversationHandler(
             entry_points=[
                 CommandHandler('add', add_task_start),
@@ -1055,13 +1086,14 @@ def main():
             states={
                 TEXT: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, add_task_text),
-                    CallbackQueryHandler(handle_back_button, pattern="^back_to_main$")
+                    CallbackQueryHandler(handle_back_button, pattern="^back$")
                 ],
                 DUE_DATE: [
                     CallbackQueryHandler(add_task_due_date, pattern="^(today|tomorrow|3days|no_date|custom|back)$")
                 ],
                 CUSTOM_DATE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_date)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_date),
+                    CallbackQueryHandler(handle_back_button, pattern="^back$")
                 ],
                 PRIORITY: [
                     CallbackQueryHandler(add_task_priority, pattern="^(1|2|3|back)$")
@@ -1070,7 +1102,8 @@ def main():
             fallbacks=[
                 CommandHandler('cancel', cancel),
                 MessageHandler(filters.Text("❌ Отмена"), cancel),
-                CallbackQueryHandler(handle_back_button, pattern="^back")
+                CallbackQueryHandler(handle_back_button, pattern="^back$"),
+                MessageHandler(filters.Text(["назад", "back", "отмена", "cancel"]), cancel)
             ]
         )
         
@@ -1100,7 +1133,13 @@ def main():
         application.add_handler(CallbackQueryHandler(handle_news_actions, pattern="^(refresh_news|close_news|back)$"))
         
         # Обработчик кнопки Назад
-        application.add_handler(CallbackQueryHandler(handle_back_button, pattern="^(back|back_to_main)$"))
+        application.add_handler(CallbackQueryHandler(handle_back_button, pattern="^back$"))
+        
+        # Обработчик текстовых команд (назад, отмена)
+        application.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND, 
+            handle_text_commands
+        ))
         
         # Добавление обработчика ошибок
         application.add_error_handler(error_handler)
