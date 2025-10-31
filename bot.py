@@ -40,12 +40,12 @@ PRIORITIES = {
     "🔵 Низкий": 1
 }
 
-# Конфигурация NewsAPI - ИСПРАВЛЕНО: токен из переменных окружения
+# Конфигурация NewsAPI
 NEWS_API_KEY = os.getenv('NEWS_API_KEY', '7c90fc1f9c9f46c2898f4f21684b5c57')
 NEWS_API_URL = f"https://newsapi.org/v2/top-headlines?country=us&category=business&apiKey={NEWS_API_KEY}"
 
 class TaskManager:
-    def __init__(self, db_path='/tmp/tasks.db'):  # ИСПРАВЛЕНО: путь для Railway
+    def __init__(self, db_path='/tmp/tasks.db'):
         self.db_path = db_path
         self.init_database()
     
@@ -67,7 +67,6 @@ class TaskManager:
                 )
             ''')
             
-            # УДАЛЕНА таблица reminders - больше не нужна
             conn.commit()
             conn.close()
             logger.info("База данных инициализирована успешно")
@@ -88,8 +87,6 @@ class TaskManager:
             ''', (user_id, text, due_date, priority, created_at))
             
             task_id = cursor.lastrowid
-            
-            # УДАЛЕНА логика создания напоминаний
             
             conn.commit()
             conn.close()
@@ -173,8 +170,6 @@ class TaskManager:
                 DELETE FROM tasks WHERE id = ? AND user_id = ?
             ''', (task_id, user_id))
             
-            # УДАЛЕНА логика удаления напоминаний
-            
             success = cursor.rowcount > 0
             conn.commit()
             conn.close()
@@ -196,6 +191,10 @@ def get_main_menu():
         [KeyboardButton("✅ Выполненные"), KeyboardButton("⚙️ Управление задачами")],
         [KeyboardButton("📰 Бизнес-новости США"), KeyboardButton("ℹ️ Помощь")]
     ], resize_keyboard=True)
+
+def get_back_button():
+    """Кнопка Назад для инлайн-клавиатур"""
+    return [InlineKeyboardButton("⬅️ Назад", callback_data="back")]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start с меню"""
@@ -246,7 +245,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 `ГГГГ-ММ-ДД ЧЧ:ММ`
 Пример: `2024-12-31 23:59`
 
-💡 *Совет:* Регулярно проверяйте список задач!
+💡 *Совет:* На каждом этапе есть кнопка "⬅️ Назад" для возврата к предыдущему шагу!
 """
         await update.message.reply_text(help_text)
     except Exception as e:
@@ -351,9 +350,10 @@ async def send_news_articles(update, articles):
             news_text += f"📰 *{source}* | 🕒 {date_str}\n"
             news_text += f"🔗 [Читать]({url})\n\n"
         
-        # Добавляем кнопку для обновления
+        # Добавляем кнопки с возможностью возврата
         keyboard = [
             [InlineKeyboardButton("🔄 Обновить новости", callback_data="refresh_news")],
+            get_back_button(),
             [InlineKeyboardButton("❌ Закрыть", callback_data="close_news")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -410,6 +410,7 @@ async def handle_news_actions(update: Update, context: ContextTypes.DEFAULT_TYPE
                 
                 keyboard = [
                     [InlineKeyboardButton("🔄 Обновить новости", callback_data="refresh_news")],
+                    get_back_button(),
                     [InlineKeyboardButton("❌ Закрыть", callback_data="close_news")]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -429,6 +430,13 @@ async def handle_news_actions(update: Update, context: ContextTypes.DEFAULT_TYPE
         elif query.data == "close_news":
             await query.edit_message_text("📰 Просмотр новостей завершен")
         
+        elif query.data == "back":
+            # Возврат в главное меню
+            await query.edit_message_text(
+                "Возврат в главное меню",
+                reply_markup=get_main_menu()
+            )
+            
     except Exception as e:
         logger.error(f"Ошибка обработки действий с новостей: {e}")
         await update.callback_query.edit_message_text("❌ Произошла ошибка.")
@@ -438,7 +446,15 @@ async def add_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало процесса добавления задачи"""
     try:
         context.user_data.clear()
-        await update.message.reply_text("📝 Введите текст задачи:")
+        context.user_data['current_step'] = 'text'
+        
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "📝 Введите текст задачи:",
+            reply_markup=reply_markup
+        )
         return TEXT
     except Exception as e:
         logger.error(f"Ошибка начала добавления задачи: {e}")
@@ -449,13 +465,15 @@ async def add_task_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение текста задачи"""
     try:
         context.user_data['task_text'] = update.message.text
+        context.user_data['current_step'] = 'due_date'
         
         keyboard = [
             [InlineKeyboardButton("Сегодня", callback_data="today")],
             [InlineKeyboardButton("Завтра", callback_data="tomorrow")],
             [InlineKeyboardButton("Через 3 дня", callback_data="3days")],
             [InlineKeyboardButton("📅 Кастомный формат", callback_data="custom")],
-            [InlineKeyboardButton("Без срока", callback_data="no_date")]
+            [InlineKeyboardButton("Без срока", callback_data="no_date")],
+            get_back_button()
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -478,11 +496,28 @@ async def add_task_due_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         user_choice = query.data
         
+        if user_choice == "back":
+            # Возврат к вводу текста
+            context.user_data['current_step'] = 'text'
+            keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "📝 Введите текст задачи:",
+                reply_markup=reply_markup
+            )
+            return TEXT
+        
         if user_choice == "custom":
+            context.user_data['current_step'] = 'custom_date'
+            keyboard = [get_back_button()]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             await query.edit_message_text(
                 "📅 Введите дату и время в формате:\n"
                 "`ГГГГ-ММ-ДД ЧЧ:ММ`\n"
-                "Пример: `2024-12-31 23:59`"
+                "Пример: `2024-12-31 23:59`",
+                reply_markup=reply_markup
             )
             return CUSTOM_DATE
         
@@ -500,11 +535,13 @@ async def add_task_due_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
             due_date = None
         
         context.user_data['due_date'] = due_date.isoformat() if due_date else None
+        context.user_data['current_step'] = 'priority'
         
         keyboard = [
             [InlineKeyboardButton("🔴 Высокий", callback_data="3")],
             [InlineKeyboardButton("🟡 Средний", callback_data="2")],
-            [InlineKeyboardButton("🔵 Низкий", callback_data="1")]
+            [InlineKeyboardButton("🔵 Низкий", callback_data="1")],
+            get_back_button()
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -524,6 +561,26 @@ async def handle_custom_date(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         custom_date = update.message.text.strip()
         
+        if custom_date.lower() == 'назад':
+            # Возврат к выбору даты
+            context.user_data['current_step'] = 'due_date'
+            
+            keyboard = [
+                [InlineKeyboardButton("Сегодня", callback_data="today")],
+                [InlineKeyboardButton("Завтра", callback_data="tomorrow")],
+                [InlineKeyboardButton("Через 3 дня", callback_data="3days")],
+                [InlineKeyboardButton("📅 Кастомный формат", callback_data="custom")],
+                [InlineKeyboardButton("Без срока", callback_data="no_date")],
+                get_back_button()
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                "⏰ Укажите срок выполнения:",
+                reply_markup=reply_markup
+            )
+            return DUE_DATE
+        
         try:
             due_date = datetime.strptime(custom_date, "%Y-%m-%d %H:%M")
             if due_date < datetime.now():
@@ -531,11 +588,13 @@ async def handle_custom_date(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 return CUSTOM_DATE
                 
             context.user_data['due_date'] = due_date.isoformat()
+            context.user_data['current_step'] = 'priority'
             
             keyboard = [
                 [InlineKeyboardButton("🔴 Высокий", callback_data="3")],
                 [InlineKeyboardButton("🟡 Средний", callback_data="2")],
-                [InlineKeyboardButton("🔵 Низкий", callback_data="1")]
+                [InlineKeyboardButton("🔵 Низкий", callback_data="1")],
+                get_back_button()
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -564,6 +623,26 @@ async def add_task_priority(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query
         await query.answer()
+        
+        if query.data == "back":
+            # Возврат к выбору даты
+            context.user_data['current_step'] = 'due_date'
+            
+            keyboard = [
+                [InlineKeyboardButton("Сегодня", callback_data="today")],
+                [InlineKeyboardButton("Завтра", callback_data="tomorrow")],
+                [InlineKeyboardButton("Через 3 дня", callback_data="3days")],
+                [InlineKeyboardButton("📅 Кастомный формат", callback_data="custom")],
+                [InlineKeyboardButton("Без срока", callback_data="no_date")],
+                get_back_button()
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "⏰ Укажите срок выполнения:",
+                reply_markup=reply_markup
+            )
+            return DUE_DATE
         
         priority = int(query.data)
         user_id = query.from_user.id
@@ -683,6 +762,7 @@ async def show_task_management(update: Update, context: ContextTypes.DEFAULT_TYP
             button_text = f"{priority_emoji} #{task_id}: {text[:20]}..."
             keyboard.append([InlineKeyboardButton(button_text, callback_data=f"manage_{task_id}")])
         
+        keyboard.append(get_back_button())
         keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_manage")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -706,6 +786,14 @@ async def handle_task_management(update: Update, context: ContextTypes.DEFAULT_T
             await query.edit_message_text("❌ Управление задачами отменен")
             return
         
+        if query.data == "back":
+            # Возврат в главное меню
+            await query.edit_message_text(
+                "Возврат в главное меню",
+                reply_markup=get_main_menu()
+            )
+            return
+        
         task_id = int(query.data.split("_")[1])
         user_id = query.from_user.id
         
@@ -719,7 +807,7 @@ async def handle_task_management(update: Update, context: ContextTypes.DEFAULT_T
         keyboard = [
             [InlineKeyboardButton("✅ Выполнить", callback_data=f"complete_{task_id}")],
             [InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_{task_id}")],
-            [InlineKeyboardButton("↩️ Назад", callback_data="back_to_list")]
+            get_back_button()
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -757,6 +845,11 @@ async def handle_management_action(update: Update, context: ContextTypes.DEFAULT
             await show_task_management_from_query(query)
             return
         
+        if query.data == "back":
+            # Возврат к списку задач
+            await show_task_management_from_query(query)
+            return
+        
         action, task_id = query.data.split("_")
         task_id = int(task_id)
         user_id = query.from_user.id
@@ -773,6 +866,7 @@ async def handle_management_action(update: Update, context: ContextTypes.DEFAULT
             if task:
                 keyboard = [
                     [InlineKeyboardButton("✅ Да", callback_data=f"confirm_delete_{task_id}")],
+                    get_back_button(),
                     [InlineKeyboardButton("❌ Нет", callback_data="cancel_delete")]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -797,6 +891,7 @@ async def show_task_management_from_query(query):
         button_text = f"{priority_emoji} #{task_id}: {text[:20]}..."
         keyboard.append([InlineKeyboardButton(button_text, callback_data=f"manage_{task_id}")])
     
+    keyboard.append(get_back_button())
     keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="cancel_manage")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -816,6 +911,41 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
             await query.edit_message_text("❌ Удаление отменено")
             return
         
+        if query.data == "back":
+            # Возврат к управлению задачей
+            task_id = context.user_data.get('manage_task_id')
+            if task_id:
+                user_id = query.from_user.id
+                task = task_manager.get_task(task_id, user_id)
+                if task:
+                    keyboard = [
+                        [InlineKeyboardButton("✅ Выполнить", callback_data=f"complete_{task_id}")],
+                        [InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_{task_id}")],
+                        get_back_button()
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    task_text = task[2]
+                    priority = task[4]
+                    due_date = task[3]
+                    
+                    priority_text = {3: "🔴 Высокий", 2: "🟡 Средний", 1: "🔵 Низкий"}[priority]
+                    
+                    if due_date:
+                        due_date_str = datetime.fromisoformat(due_date).strftime("%d.%m.%Y %H:%M")
+                        task_info = f"до {due_date_str}"
+                    else:
+                        task_info = "без срока"
+                    
+                    await query.edit_message_text(
+                        f"📋 Задача: {task_text}\n"
+                        f"🎯 Приоритет: {priority_text}\n"
+                        f"📅 Срок: {task_info}\n\n"
+                        f"Выберите действие:",
+                        reply_markup=reply_markup
+                    )
+            return
+        
         if query.data.startswith("confirm_delete_"):
             task_id = int(query.data.split("_")[2])
             user_id = query.from_user.id
@@ -829,6 +959,64 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
         logger.error(f"Ошибка подтверждения удаления: {e}")
         await update.callback_query.edit_message_text("❌ Произошла ошибка.")
 
+async def handle_back_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка кнопки Назад в различных состояниях"""
+    try:
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "back_to_main":
+            await query.edit_message_text(
+                "Возврат в главное меню",
+                reply_markup=get_main_menu()
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
+        
+        elif query.data == "back":
+            # Общая обработка кнопки Назад
+            current_step = context.user_data.get('current_step', '')
+            
+            if current_step == 'text':
+                await query.edit_message_text(
+                    "Возврат в главное меню",
+                    reply_markup=get_main_menu()
+                )
+                context.user_data.clear()
+                return ConversationHandler.END
+                
+            elif current_step == 'due_date':
+                # Возврат к вводу текста
+                keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.edit_message_text(
+                    "📝 Введите текст задачи:",
+                    reply_markup=reply_markup
+                )
+                return TEXT
+                
+            elif current_step == 'priority':
+                # Возврат к выбору даты
+                keyboard = [
+                    [InlineKeyboardButton("Сегодня", callback_data="today")],
+                    [InlineKeyboardButton("Завтра", callback_data="tomorrow")],
+                    [InlineKeyboardButton("Через 3 дня", callback_data="3days")],
+                    [InlineKeyboardButton("📅 Кастомный формат", callback_data="custom")],
+                    [InlineKeyboardButton("Без срока", callback_data="no_date")],
+                    get_back_button()
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.edit_message_text(
+                    "⏰ Укажите срок выполнения:",
+                    reply_markup=reply_markup
+                )
+                return DUE_DATE
+        
+    except Exception as e:
+        logger.error(f"Ошибка обработки кнопки Назад: {e}")
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отмена текущей операции"""
     try:
@@ -840,8 +1028,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     except Exception as e:
         logger.error(f"Ошибка отмены операции: {e}")
-
-# УДАЛЕНА функция send_reminders - больше не нужна
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
@@ -868,21 +1054,23 @@ def main():
             ],
             states={
                 TEXT: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, add_task_text)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, add_task_text),
+                    CallbackQueryHandler(handle_back_button, pattern="^back_to_main$")
                 ],
                 DUE_DATE: [
-                    CallbackQueryHandler(add_task_due_date, pattern="^(today|tomorrow|3days|no_date|custom)$")
+                    CallbackQueryHandler(add_task_due_date, pattern="^(today|tomorrow|3days|no_date|custom|back)$")
                 ],
                 CUSTOM_DATE: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_date)
                 ],
                 PRIORITY: [
-                    CallbackQueryHandler(add_task_priority, pattern="^(1|2|3)$")
+                    CallbackQueryHandler(add_task_priority, pattern="^(1|2|3|back)$")
                 ],
             },
             fallbacks=[
                 CommandHandler('cancel', cancel),
-                MessageHandler(filters.Text("❌ Отмена"), cancel)
+                MessageHandler(filters.Text("❌ Отмена"), cancel),
+                CallbackQueryHandler(handle_back_button, pattern="^back")
             ]
         )
         
@@ -905,20 +1093,21 @@ def main():
         
         # Обработчики callback запросов для задач
         application.add_handler(CallbackQueryHandler(handle_task_management, pattern="^manage_"))
-        application.add_handler(CallbackQueryHandler(handle_management_action, pattern="^(complete_|delete_|back_)"))
-        application.add_handler(CallbackQueryHandler(handle_delete_confirmation, pattern="^(confirm_delete_|cancel_delete)"))
+        application.add_handler(CallbackQueryHandler(handle_management_action, pattern="^(complete_|delete_|back_to_list|back)$"))
+        application.add_handler(CallbackQueryHandler(handle_delete_confirmation, pattern="^(confirm_delete_|cancel_delete|back)$"))
         
         # Обработчики callback запросов для новостей
-        application.add_handler(CallbackQueryHandler(handle_news_actions, pattern="^(refresh_news|close_news)"))
+        application.add_handler(CallbackQueryHandler(handle_news_actions, pattern="^(refresh_news|close_news|back)$"))
+        
+        # Обработчик кнопки Назад
+        application.add_handler(CallbackQueryHandler(handle_back_button, pattern="^(back|back_to_main)$"))
         
         # Добавление обработчика ошибок
         application.add_error_handler(error_handler)
         
-        # УДАЛЕН блок с планировщиком - больше не нужен
-        
         print("✅ Бот запущен успешно!")
         print("📰 Функция новостей: АКТИВНА (бизнес-новости США)")
-        print("💡 Напоминания отключены для стабильной работы")
+        print("🔄 Функция возврата назад: АКТИВНА на всех этапах")
         
         application.run_polling()
         
